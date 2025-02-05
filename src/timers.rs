@@ -27,6 +27,7 @@ impl<F: Fn()> Promise for Timeout<F> {
             PromiseState::Pending
         }
     }
+    fn then(&mut self, _: Box<crate::PromiseCb>) {}
 }
 pub struct Interval<F>
 where
@@ -54,4 +55,5 @@ impl<F: Fn()> Promise for Interval<F> {
         };
         PromiseState::Pending
     }
+    fn then(&mut self, _: Box<crate::PromiseCb>) {}
 }
