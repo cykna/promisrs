@@ -1,19 +1,33 @@
 mod timers;
-use std::any::Any;
+use std::{any::Any, error::Error};
 
 use timers::{set_interval, set_timeout};
 
-pub enum PromiseState<T> {
+pub enum PromiseState<T, E> {
     Pending,
+    Rejected(E),
     Done(T),
 }
+impl<T, E> PromiseState<T, E> {
+    pub fn is_done(&self) -> bool {
+        !matches!(self, Self::Pending)
+    }
+}
 type PromiseCb = dyn Fn(Box<dyn Any>) -> Option<Box<dyn Promise>>;
+type PromiseErr = dyn Fn(Box<dyn Error>) -> Option<Box<dyn Promise>>;
 trait Promise {
-    fn poll(&mut self) -> PromiseState<Box<dyn Any>>;
+    fn poll(&mut self) -> PromiseState<Box<dyn Any>, Box<dyn Error>>;
     fn chain(&self) -> Option<&PromiseCb> {
         None
     }
+    fn catch(&self) -> Option<&PromiseErr> {
+        None
+    }
     fn then(&mut self, val: Box<PromiseCb>);
+    fn should_block(&self) -> bool {
+        false
+    }
+    fn block(&mut self) {}
 }
 
 struct Poller {
@@ -37,22 +51,45 @@ impl Poller {
     pub fn done(&self) -> bool {
         self.in_wait.is_empty()
     }
+    fn handle_complete(&mut self, task: PromiseState<Box<dyn Any>, Box<dyn Error>>, idx: usize) {
+        let len = self.in_wait.len() - 1;
+        self.in_wait.swap(idx, len);
+        let promise = self.in_wait.pop().unwrap();
+        match task {
+            PromiseState::Done(val) => {
+                if let Some(cb) = promise.chain() {
+                    if let Some(promise) = cb(val) {
+                        self.in_wait.push(promise);
+                    };
+                }
+            }
+            PromiseState::Rejected(err) => {
+                if let Some(fb) = promise.catch() {
+                    if let Some(promise) = fb(err) {
+                        self.in_wait.push(promise);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
     pub fn run(&mut self) {
         while !self.done() {
             let mut idx = 0;
             while let Some(promise) = self.in_wait.get_mut(idx) {
-                if let PromiseState::Done(v) = promise.poll() {
-                    let len = self.in_wait.len() - 1;
-                    self.in_wait.swap(idx, len);
-                    let p = self.in_wait.pop().unwrap();
-                    if let Some(callback) = p.chain() {
-                        if let Some(val) = callback(v) {
-                            self.in_wait.push(val);
-                        }
+                if promise.should_block() {
+                    let mut state = PromiseState::Pending;
+                    while promise.should_block() && !state.is_done() {
+                        state = promise.poll();
                     }
-                } else {
-                    idx += 1;
+                    self.handle_complete(state, idx);
+                    continue;
                 }
+                let state = promise.poll();
+                if state.is_done() {
+                    self.handle_complete(state, idx);
+                }
+                idx += 1;
             }
         }
     }
@@ -64,9 +101,10 @@ struct Thing {
 struct ThingProm {
     b: u32,
     cb: Option<Box<PromiseCb>>,
+    should_block: bool,
 }
 impl Promise for ThingProm {
-    fn poll(&mut self) -> PromiseState<Box<dyn Any>> {
+    fn poll(&mut self) -> PromiseState<Box<dyn Any>, Box<dyn Error>> {
         if self.b < 1000 {
             self.b += 1;
             PromiseState::Pending
@@ -80,9 +118,19 @@ impl Promise for ThingProm {
     fn chain(&self) -> Option<&PromiseCb> {
         self.cb.as_deref()
     }
+    fn should_block(&self) -> bool {
+        self.should_block
+    }
+    fn block(&mut self) {
+        self.should_block = true;
+    }
 }
 fn f(b: u32) -> impl Promise {
-    ThingProm { b, cb: None }
+    ThingProm {
+        b,
+        cb: None,
+        should_block: false,
+    }
 }
 
 fn main() {
@@ -96,7 +144,10 @@ fn main() {
             2.0,
         )))
     }));
+    other.block();
+    let other_interval = set_interval(|| println!("After 1.5secs"), 1.5);
     poller.schedule(timeout);
     poller.schedule(other);
+    poller.schedule(other_interval);
     poller.run();
 }

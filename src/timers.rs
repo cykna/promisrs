@@ -1,5 +1,5 @@
 use crate::{Promise, PromiseState};
-use std::{any::Any, time::Instant};
+use std::{any::Any, error::Error, time::Instant};
 pub struct Timeout<F>
 where
     F: Fn(),
@@ -19,7 +19,7 @@ where
     }
 }
 impl<F: Fn()> Promise for Timeout<F> {
-    fn poll(&mut self) -> PromiseState<Box<dyn Any>> {
+    fn poll(&mut self) -> PromiseState<Box<dyn Any>, Box<dyn Error>> {
         if self.now.elapsed().as_secs_f32() >= self.ms {
             (self.f)();
             PromiseState::Done(Box::new(()))
@@ -48,7 +48,7 @@ where
     }
 }
 impl<F: Fn()> Promise for Interval<F> {
-    fn poll(&mut self) -> PromiseState<Box<dyn Any>> {
+    fn poll(&mut self) -> PromiseState<Box<dyn Any>, Box<dyn Error>> {
         if self.now.elapsed().as_secs_f32() > self.ms {
             self.now = Instant::now();
             (self.f)();
