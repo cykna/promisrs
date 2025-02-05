@@ -1,4 +1,7 @@
-use std::{any::Any, time::Instant};
+mod timers;
+use std::any::Any;
+
+use timers::set_interval;
 
 pub enum PromiseState<T> {
     Pending,
@@ -53,37 +56,9 @@ impl<'a> Poller<'a> {
     }
 }
 
-struct Timeout<F>
-where
-    F: Fn(),
-{
-    f: F,
-    now: Instant,
-    ms: f32,
-}
-fn set_timeout<F>(f: F, ms: f32) -> Timeout<F>
-where
-    F: Fn(),
-{
-    Timeout {
-        f,
-        now: Instant::now(),
-        ms,
-    }
-}
-impl<F: Fn()> Promise for Timeout<F> {
-    fn poll(&mut self) -> PromiseState<Box<dyn Any>> {
-        if self.now.elapsed().as_secs_f32() >= self.ms {
-            (self.f)();
-            PromiseState::Done(Box::new(()))
-        } else {
-            PromiseState::Pending
-        }
-    }
-}
 fn main() {
     let mut poller = Poller::new();
-    let mut timeout = set_timeout(|| println!("run after 1 sec"), 1.0);
+    let mut timeout = set_interval(|| println!("run after 1 sec"), 1.0);
     poller.schedule(&mut timeout);
     poller.run();
 }
