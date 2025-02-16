@@ -15,10 +15,7 @@ impl Poller {
     }
     ///Adds the given promise to the poller
     #[inline]
-    pub fn schedule<P>(&mut self, promise: P)
-    where
-        P: Promise + 'static,
-    {
+    pub fn schedule<P: Promise + 'static>(&mut self, promise: P) {
         self.in_wait.push(Box::new(promise));
     }
     #[inline]
@@ -34,7 +31,6 @@ impl Poller {
         let len = self.in_wait.len() - 1;
         self.in_wait.swap(idx, len); //Swaps to the last position and pops to not copy memory
         let promise = self.in_wait.pop().unwrap();
-        println!("{idx}");
         match task {
             PromiseState::Done(val) => {
                 if let Some(chain) = promise.chain() {
@@ -64,7 +60,7 @@ impl Poller {
                 //anymore
                 if promise.should_block() {
                     let mut state = promise.poll();
-                    while promise.should_block() && !state.is_done() {
+                    while !state.is_done() {
                         state = promise.poll();
                     }
                     self.handle_complete(state, idx);
